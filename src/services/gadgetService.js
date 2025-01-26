@@ -1,6 +1,8 @@
 const prisma = require('../utils/prisma');
 const { generateSuccessProbability, generateCodename, generateConfirmationCode } = require('../utils/gadgetUtils');
 
+const confirmationCodes = new Map(); // Store temporary confirmation codes
+
 const getAllGadgets = async (status) => {
     const where = status ? { status } : {};
     const gadgets = await prisma.gadget.findMany({ where });
@@ -58,16 +60,29 @@ const selfDestructGadget = async (id, confirmationCode) => {
     if (!existingGadget) throw new Error('Gadget not found');
     if (existingGadget.status === 'Destroyed') throw new Error('Gadget is already destroyed');
 
-    const expectedCode = generateConfirmationCode();
-    if (!confirmationCode) return { message: 'Confirmation required', confirmationCode: expectedCode };
-    if (confirmationCode !== expectedCode) throw new Error('Invalid confirmation code');
+    if (!confirmationCode) {
+        const newCode = generateConfirmationCode();
+        confirmationCodes.set(id, newCode);
+        return { message: 'Confirmation required', confirmationCode: newCode };
+    }
+
+    const expectedCode = confirmationCodes.get(id);
+    if (!expectedCode || confirmationCode !== expectedCode) {
+        throw new Error('Invalid confirmation code');
+    }
+
+    confirmationCodes.delete(id);
 
     const destroyedGadget = await prisma.gadget.update({
         where: { id },
         data: { status: 'Destroyed' }
     });
 
-    return { ...destroyedGadget, success_probability: `${generateSuccessProbability()}%`, message: 'Gadget has been destroyed' };
+    return { 
+        ...destroyedGadget, 
+        success_probability: `${generateSuccessProbability()}%`, 
+        message: 'Gadget has been destroyed' 
+    };
 };
 
 module.exports = { getAllGadgets, createGadget, updateGadget, deleteGadget, selfDestructGadget };
